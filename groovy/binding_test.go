@@ -53,7 +53,7 @@ var testCases = []struct {
 func TestGrammar(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			n, err := sitter.ParseCtx(context.Background(), []byte(tc.input), groovy.GetLanguage())
+			n, err := sitter.Parse(context.Background(), []byte(tc.input), groovy.GetLanguage())
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expected, n.String())
 		})

@@ -88,7 +88,7 @@ func ParseCtx(ctx context.Context, oldTree *MarkdownTree, content []byte) (*Mark
 	if oldTree != nil {
 		old = oldTree.blockTree
 	}
-	tree, err := p.ParseCtx(ctx, old, content)
+	tree, err := p.Parse(ctx, old, content)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func ParseCtx(ctx context.Context, oldTree *MarkdownTree, content []byte) (*Mark
 				old = oldTree.inlineTrees[idx]
 			}
 
-			inlineTree, err := p.ParseCtx(ctx, old, content)
+			inlineTree, err := p.Parse(ctx, old, content)
 			if err != nil {
 				return nil, err
 			}

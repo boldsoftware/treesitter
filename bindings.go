@@ -22,19 +22,10 @@ var readFuncs = &readFuncsMap{funcs: make(map[int]ReadFunc)}
 
 // Parse is a shortcut for parsing bytes of source code,
 // returns root node
-//
-// Deprecated: use ParseCtx instead
-func Parse(content []byte, lang *Language) *Node {
-	n, _ := ParseCtx(context.Background(), content, lang)
-	return n
-}
-
-// ParseCtx is a shortcut for parsing bytes of source code,
-// returns root node
-func ParseCtx(ctx context.Context, content []byte, lang *Language) (*Node, error) {
+func Parse(ctx context.Context, content []byte, lang *Language) (*Node, error) {
 	p := NewParser()
 	p.SetLanguage(lang)
-	tree, err := p.ParseCtx(ctx, nil, content)
+	tree, err := p.Parse(ctx, nil, content)
 	if err != nil {
 		return nil, err
 	}
@@ -88,15 +79,7 @@ var (
 )
 
 // Parse produces new Tree from content using old tree
-//
-// Deprecated: use ParseCtx instead
-func (p *Parser) Parse(oldTree *Tree, content []byte) *Tree {
-	t, _ := p.ParseCtx(context.Background(), oldTree, content)
-	return t
-}
-
-// ParseCtx produces new Tree from content using old tree
-func (p *Parser) ParseCtx(ctx context.Context, oldTree *Tree, content []byte) (*Tree, error) {
+func (p *Parser) Parse(ctx context.Context, oldTree *Tree, content []byte) (*Tree, error) {
 	var BaseTree *C.TSTree
 	if oldTree != nil {
 		BaseTree = oldTree.c
@@ -128,16 +111,7 @@ func (p *Parser) ParseCtx(ctx context.Context, oldTree *Tree, content []byte) (*
 // it is useful if your data is stored in specialized data structure
 // as it will avoid copying the data into []bytes
 // and faster access to edited part of the data
-func (p *Parser) ParseInput(oldTree *Tree, input Input) *Tree {
-	t, _ := p.ParseInputCtx(context.Background(), oldTree, input)
-	return t
-}
-
-// ParseInputCtx produces new Tree by reading from a callback defined in input
-// it is useful if your data is stored in specialized data structure
-// as it will avoid copying the data into []bytes
-// and faster access to edited part of the data
-func (p *Parser) ParseInputCtx(ctx context.Context, oldTree *Tree, input Input) (*Tree, error) {
+func (p *Parser) ParseInput(ctx context.Context, oldTree *Tree, input Input) (*Tree, error) {
 	var BaseTree *C.TSTree
 	if oldTree != nil {
 		BaseTree = oldTree.c

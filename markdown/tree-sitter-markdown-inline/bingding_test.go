@@ -12,7 +12,7 @@ import (
 func TestGrammar(t *testing.T) {
 	assert := assert.New(t)
 
-	n, err := sitter.ParseCtx(context.Background(), []byte("# Hello world!\n- Here is a picture: ![picture](https://example.com/picture.png)"), tree_sitter_markdown_inline.GetLanguage())
+	n, err := sitter.Parse(context.Background(), []byte("# Hello world!\n- Here is a picture: ![picture](https://example.com/picture.png)"), tree_sitter_markdown_inline.GetLanguage())
 	assert.NoError(err)
 	assert.Equal(
 		"(inline (image (image_description) (link_destination)))",

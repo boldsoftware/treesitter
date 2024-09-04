@@ -20,7 +20,7 @@ const expected = `(source_file (class_declaration name: (type_identifier) body: 
 func TestGrammar(t *testing.T) {
 	assert := assert.New(t)
 
-	n, err := sitter.ParseCtx(context.Background(), []byte(code), swift.GetLanguage())
+	n, err := sitter.Parse(context.Background(), []byte(code), swift.GetLanguage())
 	assert.NoError(err)
 	assert.Equal(
 		expected,

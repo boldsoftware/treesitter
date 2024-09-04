@@ -19,7 +19,7 @@ const expected = `(program (statement (select (keyword_select) (select_expressio
 func TestGrammar(t *testing.T) {
 	assert := assert.New(t)
 
-	n, err := sitter.ParseCtx(context.Background(), []byte(code), sql.GetLanguage())
+	n, err := sitter.Parse(context.Background(), []byte(code), sql.GetLanguage())
 	assert.NoError(err)
 	assert.Equal(
 		expected,

@@ -64,7 +64,7 @@ func ExampleChildTraversal() {
 }
 
 func mustParseGo(src string) *treesitter.Node {
-	root, err := treesitter.ParseCtx(context.Background(), []byte(src), golang.GetLanguage())
+	root, err := treesitter.Parse(context.Background(), []byte(src), golang.GetLanguage())
 	if err != nil {
 		log.Fatal(err)
 	}

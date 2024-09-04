@@ -1,6 +1,7 @@
 package treesitter
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -383,7 +384,10 @@ func TestFilterPredicates(t *testing.T) {
 	parser.SetLanguage(getTestGrammar())
 
 	for testNum, testCase := range testCases {
-		tree := parser.Parse(nil, []byte(testCase.input))
+		tree, err := parser.Parse(context.Background(), nil, []byte(testCase.input))
+		if err != nil {
+			t.Fatalf("test %d: %v", testNum, err)
+		}
 		root := tree.RootNode()
 
 		q, _ := NewQuery([]byte(testCase.query), getTestGrammar())
