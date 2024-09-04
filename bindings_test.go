@@ -597,7 +597,7 @@ func TestLeakParseInput(t *testing.T) {
 	assert.Less(t, m.Alloc, uint64(1024*1024))
 }
 
-// see https://github.com/smacker/go-tree-sitter/issues/75
+// see https://github.com/boldsoftware/treesitter/issues/75
 func TestCursorKeepsQuery(t *testing.T) {
 	source := bytes.Repeat([]byte("1 + 1"), 10000)
 

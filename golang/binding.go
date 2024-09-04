@@ -6,10 +6,10 @@ import "C"
 import (
 	"unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	treesitter "github.com/boldsoftware/treesitter"
 )
 
-func GetLanguage() *sitter.Language {
+func GetLanguage() *treesitter.Language {
 	ptr := unsafe.Pointer(C.tree_sitter_go())
-	return sitter.NewLanguage(ptr)
+	return treesitter.NewLanguage(ptr)
 }

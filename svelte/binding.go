@@ -4,7 +4,7 @@ package svelte
 //TSLanguage *tree_sitter_svelte();
 import "C"
 import (
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/boldsoftware/treesitter"
 	"unsafe"
 )
 

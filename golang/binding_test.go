@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	sitter "github.com/boldsoftware/treesitter"
+	"github.com/boldsoftware/treesitter/golang"
 	"github.com/stretchr/testify/assert"
 )
 

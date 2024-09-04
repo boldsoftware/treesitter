@@ -3,9 +3,9 @@ package markdown
 import (
 	"context"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	tree_sitter_markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
-	tree_sitter_markdown_inline "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown-inline"
+	sitter "github.com/boldsoftware/treesitter"
+	tree_sitter_markdown "github.com/boldsoftware/treesitter/markdown/tree-sitter-markdown"
+	tree_sitter_markdown_inline "github.com/boldsoftware/treesitter/markdown/tree-sitter-markdown-inline"
 )
 
 type MarkdownTree struct {

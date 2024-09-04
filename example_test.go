@@ -8,8 +8,8 @@ import (
 	"log"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	treesitter "github.com/boldsoftware/treesitter"
+	"github.com/boldsoftware/treesitter/golang"
 )
 
 // ExampleCursorTraversal recursively prints the tree using TreeCursor.
@@ -18,7 +18,7 @@ import (
 func ExampleCursorTraversal() {
 	root := mustParseGo("func f(a, b, c int, d, e int)")
 
-	c := sitter.NewTreeCursor(root)
+	c := treesitter.NewTreeCursor(root)
 	defer c.Close()
 	var visit func(depth int)
 	visit = func(depth int) {
@@ -52,8 +52,8 @@ func ExampleCursorTraversal() {
 func ExampleChildTraversal() {
 	root := mustParseGo("func f(a, b, c int, d, e int)")
 
-	var visit func(n *sitter.Node, name string, depth int)
-	visit = func(n *sitter.Node, name string, depth int) {
+	var visit func(n *treesitter.Node, name string, depth int)
+	visit = func(n *treesitter.Node, name string, depth int) {
 		printNode(n, depth, name)
 		for i := 0; i < int(n.ChildCount()); i++ {
 			visit(n.Child(i), n.FieldNameForChild(i), depth+1)
@@ -63,15 +63,15 @@ func ExampleChildTraversal() {
 	visit(root, "root", 0)
 }
 
-func mustParseGo(src string) *sitter.Node {
-	root, err := sitter.ParseCtx(context.Background(), []byte(src), golang.GetLanguage())
+func mustParseGo(src string) *treesitter.Node {
+	root, err := treesitter.ParseCtx(context.Background(), []byte(src), golang.GetLanguage())
 	if err != nil {
 		log.Fatal(err)
 	}
 	return root
 }
 
-func printNode(n *sitter.Node, depth int, name string) {
+func printNode(n *treesitter.Node, depth int, name string) {
 	prefix := ""
 	if name != "" {
 		prefix = name + ": "
