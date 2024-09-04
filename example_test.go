@@ -1,4 +1,4 @@
-package sitter_test
+package treesitter_test
 
 // Example usage of sitter Go API.
 

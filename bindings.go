@@ -1,4 +1,4 @@
-package sitter
+package treesitter
 
 // #include "bindings.h"
 import "C"

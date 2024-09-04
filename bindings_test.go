@@ -1,4 +1,4 @@
-package sitter
+package treesitter
 
 import (
 	"bytes"
