@@ -24,8 +24,7 @@ var readFuncs = &readFuncsMap{funcs: make(map[int]ReadFunc)}
 // Parse is a shortcut for parsing bytes of source code,
 // returns root node
 func Parse(ctx context.Context, content []byte, lang *Language) (Node, error) {
-	p := NewParser()
-	p.SetLanguage(lang)
+	p := NewParser(lang)
 	tree, err := p.Parse(ctx, nil, content)
 	if err != nil {
 		return Node{}, err
@@ -41,19 +40,14 @@ type Parser struct {
 	cancel   *uintptr
 }
 
-// NewParser creates new Parser
-func NewParser() *Parser {
+// NewParser creates new Parser.
+func NewParser(lang *Language) *Parser {
 	cancel := uintptr(0)
 	p := &Parser{c: C.ts_parser_new(), cancel: &cancel}
 	C.ts_parser_set_cancellation_flag(p.c, (*C.size_t)(unsafe.Pointer(p.cancel)))
+	C.ts_parser_set_language(p.c, (*C.struct_TSLanguage)(lang.ptr))
 	runtime.SetFinalizer(p, (*Parser).Close)
 	return p
-}
-
-// SetLanguage assignes Language to a parser
-func (p *Parser) SetLanguage(lang *Language) {
-	cLang := (*C.struct_TSLanguage)(lang.ptr)
-	C.ts_parser_set_language(p.c, cLang)
 }
 
 // ReadFunc is a function to retrieve a chunk of text at a given byte offset and (row, column) position

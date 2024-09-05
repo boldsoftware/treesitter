@@ -81,8 +81,7 @@ type Node struct {
 }
 
 func ParseCtx(ctx context.Context, oldTree *MarkdownTree, content []byte) (*MarkdownTree, error) {
-	p := treesitter.NewParser()
-	p.SetLanguage(tree_sitter_markdown.GetLanguage())
+	p := treesitter.NewParser(tree_sitter_markdown.GetLanguage())
 
 	var old *treesitter.Tree
 	if oldTree != nil {
@@ -98,8 +97,10 @@ func ParseCtx(ctx context.Context, oldTree *MarkdownTree, content []byte) (*Mark
 		inlineTrees:   []*treesitter.Tree{},
 		inlineIndices: map[uintptr]int{},
 	}
+	p.Close()
 
-	p.SetLanguage(tree_sitter_markdown_inline.GetLanguage())
+	p = treesitter.NewParser(tree_sitter_markdown_inline.GetLanguage())
+	defer p.Close()
 
 	q, err := treesitter.NewQuery([]byte(`(inline) @inline`), tree_sitter_markdown.GetLanguage())
 	if err != nil {
