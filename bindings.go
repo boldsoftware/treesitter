@@ -4,6 +4,7 @@ package treesitter
 import "C"
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -22,12 +23,12 @@ var readFuncs = &readFuncsMap{funcs: make(map[int]ReadFunc)}
 
 // Parse is a shortcut for parsing bytes of source code,
 // returns root node
-func Parse(ctx context.Context, content []byte, lang *Language) (*Node, error) {
+func Parse(ctx context.Context, content []byte, lang *Language) (Node, error) {
 	p := NewParser()
 	p.SetLanguage(lang)
 	tree, err := p.Parse(ctx, nil, content)
 	if err != nil {
-		return nil, err
+		return Node{}, err
 	}
 
 	return tree.RootNode(), nil
@@ -80,9 +81,9 @@ var (
 
 // Parse produces new Tree from content using old tree
 func (p *Parser) Parse(ctx context.Context, oldTree *Tree, content []byte) (*Tree, error) {
-	var BaseTree *C.TSTree
+	var cTree *C.TSTree
 	if oldTree != nil {
-		BaseTree = oldTree.c
+		cTree = oldTree.c
 	}
 
 	parseComplete := make(chan struct{})
@@ -100,11 +101,11 @@ func (p *Parser) Parse(ctx context.Context, oldTree *Tree, content []byte) (*Tre
 	}
 
 	input := C.CBytes(content)
-	BaseTree = C.ts_parser_parse_string(p.c, BaseTree, (*C.char)(input), C.uint32_t(len(content)))
+	cTree = C.ts_parser_parse_string(p.c, cTree, (*C.char)(input), C.uint32_t(len(content)))
 	close(parseComplete)
 	C.free(input)
 
-	return p.convertTSTree(ctx, BaseTree)
+	return p.convertTSTree(ctx, cTree)
 }
 
 // ParseInput produces new Tree by reading from a callback defined in input
@@ -112,16 +113,16 @@ func (p *Parser) Parse(ctx context.Context, oldTree *Tree, content []byte) (*Tre
 // as it will avoid copying the data into []bytes
 // and faster access to edited part of the data
 func (p *Parser) ParseInput(ctx context.Context, oldTree *Tree, input Input) (*Tree, error) {
-	var BaseTree *C.TSTree
+	var cTree *C.TSTree
 	if oldTree != nil {
-		BaseTree = oldTree.c
+		cTree = oldTree.c
 	}
 
 	funcID := readFuncs.register(input.Read)
-	BaseTree = C.call_ts_parser_parse(p.c, BaseTree, C.int(funcID), C.TSInputEncoding(input.Encoding))
+	cTree = C.call_ts_parser_parse(p.c, cTree, C.int(funcID), C.TSInputEncoding(input.Encoding))
 	readFuncs.unregister(funcID)
 
-	return p.convertTSTree(ctx, BaseTree)
+	return p.convertTSTree(ctx, cTree)
 }
 
 // convertTSTree converts the tree-sitter response into a *Tree or an error.
@@ -207,33 +208,32 @@ func (p *Parser) Close() {
 }
 
 type Point struct {
-	Row    uint32
-	Column uint32
+	Row    int
+	Column int
 }
 
 type Range struct {
 	StartPoint Point
 	EndPoint   Point
-	StartByte  uint32
-	EndByte    uint32
+	StartByte  int
+	EndByte    int
 }
 
 // we use cache for nodes on normal tree object
 // it prevent run of SetFinalizer as it introduces cycle
 // we can workaround it using separate object
 // for details see: https://github.com/golang/go/issues/7358#issuecomment-66091558
-type BaseTree struct {
-	c        *C.TSTree
-	isClosed bool
+type baseTree struct {
+	c *C.TSTree
 }
 
 // newTree creates a new tree object from a C pointer. The function will set a finalizer for the object,
 // thus no free is needed for it.
 func (p *Parser) newTree(c *C.TSTree) *Tree {
-	base := &BaseTree{c: c}
-	runtime.SetFinalizer(base, (*BaseTree).Close)
+	base := &baseTree{c: c}
+	runtime.SetFinalizer(base, (*baseTree).Close)
 
-	newTree := &Tree{p: p, BaseTree: base, cache: make(map[C.TSNode]*Node)}
+	newTree := &Tree{p: p, baseTree: base}
 	return newTree
 }
 
@@ -241,14 +241,11 @@ func (p *Parser) newTree(c *C.TSTree) *Tree {
 // Note: Tree instances are not thread safe;
 // you must copy a tree if you want to use it on multiple threads simultaneously.
 type Tree struct {
-	*BaseTree
+	*baseTree
 
 	// p is a pointer to a Parser that produced the Tree. Only used to keep Parser alive.
 	// Otherwise Parser may be GC'ed (and deleted by the finalizer) while some Tree objects are still in use.
 	p *Parser
-
-	// most probably better save node.id
-	cache map[C.TSNode]*Node
 }
 
 // Copy returns a new copy of a tree
@@ -257,41 +254,26 @@ func (t *Tree) Copy() *Tree {
 }
 
 // RootNode returns root node of a tree
-func (t *Tree) RootNode() *Node {
-	ptr := C.ts_tree_root_node(t.c)
-	return t.cachedNode(ptr)
-}
-
-func (t *Tree) cachedNode(ptr C.TSNode) *Node {
-	if ptr.id == nil {
-		return nil
-	}
-
-	if n, ok := t.cache[ptr]; ok {
-		return n
-	}
-
-	n := &Node{ptr, t}
-	t.cache[ptr] = n
-	return n
+func (t *Tree) RootNode() Node {
+	n := C.ts_tree_root_node(t.c)
+	return Node{c: (C.TSNode)(n), t: t}
 }
 
 // Close should be called to ensure that all the memory used by the tree is freed.
 //
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
 // parser.Close() will be called by Go's garbage collector and users would not have to call this manually.
-func (t *BaseTree) Close() {
-	if !t.isClosed {
+func (t *baseTree) Close() {
+	if t.c != nil {
 		C.ts_tree_delete(t.c)
+		t.c = nil
 	}
-
-	t.isClosed = true
 }
 
 type EditInput struct {
-	StartIndex  uint32
-	OldEndIndex uint32
-	NewEndIndex uint32
+	StartIndex  int
+	OldEndIndex int
+	NewEndIndex int
 	StartPoint  Point
 	OldEndPoint Point
 	NewEndPoint Point
@@ -319,6 +301,9 @@ func (i EditInput) c() *C.TSInputEdit {
 
 // Edit the syntax tree to keep it in sync with source code that has been edited.
 func (t *Tree) Edit(i EditInput) {
+	if t.c == nil {
+		panic("tree is closed")
+	}
 	C.ts_tree_edit(t.c, i.c())
 }
 
@@ -351,54 +336,36 @@ func (l *Language) FieldName(idx int) string {
 	return C.GoString(C.ts_language_field_name_for_id((*C.TSLanguage)(l.ptr), C.ushort(idx)))
 }
 
-// Node represents a single node in the syntax tree
+// Node represents a single node in the syntax tree.
+//
 // It tracks its start and end positions in the source code,
 // as well as its relation to other nodes like its parent, siblings and children.
 type Node struct {
 	c C.TSNode
-	t *Tree // keep pointer on tree because node is valid only as long as tree is
+	t *Tree
 }
 
-type Symbol = C.TSSymbol
-
-type SymbolType int
-
-const (
-	SymbolTypeRegular SymbolType = iota
-	SymbolTypeAnonymous
-	SymbolTypeAuxiliary
-)
-
-var symbolTypeNames = []string{
-	"Regular",
-	"Anonymous",
-	"Auxiliary",
-}
-
-func (t SymbolType) String() string {
-	return symbolTypeNames[t]
-}
-
+// TODO: consider unexporting this function
 func (n Node) ID() uintptr {
 	return uintptr(n.c.id)
 }
 
 // StartByte returns the node's start byte.
-func (n Node) StartByte() uint32 {
-	return uint32(C.ts_node_start_byte(n.c))
+func (n Node) StartByte() int {
+	return int(C.ts_node_start_byte(n.c))
 }
 
 // EndByte returns the node's end byte.
-func (n Node) EndByte() uint32 {
-	return uint32(C.ts_node_end_byte(n.c))
+func (n Node) EndByte() int {
+	return int(C.ts_node_end_byte(n.c))
 }
 
 // StartPoint returns the node's start position in terms of rows and columns.
 func (n Node) StartPoint() Point {
 	p := C.ts_node_start_point(n.c)
 	return Point{
-		Row:    uint32(p.row),
-		Column: uint32(p.column),
+		Row:    int(p.row),
+		Column: int(p.column),
 	}
 }
 
@@ -406,8 +373,8 @@ func (n Node) StartPoint() Point {
 func (n Node) EndPoint() Point {
 	p := C.ts_node_end_point(n.c)
 	return Point{
-		Row:    uint32(p.row),
-		Column: uint32(p.column),
+		Row:    int(p.row),
+		Column: int(p.column),
 	}
 }
 
@@ -438,12 +405,14 @@ func (n Node) String() string {
 }
 
 // Equal checks if two nodes are identical.
-func (n Node) Equal(other *Node) bool {
+func (n Node) Equal(other Node) bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_eq(n.c, other.c))
 }
 
 // IsNull checks if the node is null.
 func (n Node) IsNull() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_is_null(n.c))
 }
 
@@ -451,18 +420,21 @@ func (n Node) IsNull() bool {
 // Named nodes correspond to named rules in the grammar,
 // whereas *anonymous* nodes correspond to string literals in the grammar.
 func (n Node) IsNamed() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_is_named(n.c))
 }
 
 // IsMissing checks if the node is *missing*.
 // Missing nodes are inserted by the parser in order to recover from certain kinds of syntax errors.
 func (n Node) IsMissing() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_is_missing(n.c))
 }
 
 // IsExtra checks if the node is *extra*.
 // Extra nodes represent things like comments, which are not required the grammar, but can appear anywhere.
 func (n Node) IsExtra() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_is_extra(n.c))
 }
 
@@ -474,48 +446,51 @@ func (n Node) IsError() bool {
 
 // HasChanges checks if a syntax node has been edited.
 func (n Node) HasChanges() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_has_changes(n.c))
 }
 
 // HasError check if the node is a syntax error or contains any syntax errors.
 func (n Node) HasError() bool {
+	defer runtime.KeepAlive(n.t)
 	return bool(C.ts_node_has_error(n.c))
 }
 
 // Parent returns the node's immediate parent.
-func (n Node) Parent() *Node {
+func (n Node) Parent() Node {
 	nn := C.ts_node_parent(n.c)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // Child returns the node's child at the given index, where zero represents the first child.
-func (n Node) Child(idx int) *Node {
+func (n Node) Child(idx int) Node {
 	nn := C.ts_node_child(n.c, C.uint32_t(idx))
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // NamedChild returns the node's *named* child at the given index.
-func (n Node) NamedChild(idx int) *Node {
+func (n Node) NamedChild(idx int) Node {
 	nn := C.ts_node_named_child(n.c, C.uint32_t(idx))
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
-// ChildCount returns the node's number of children.
-func (n Node) ChildCount() uint32 {
-	return uint32(C.ts_node_child_count(n.c))
+func (n Node) ChildCount() int {
+	defer runtime.KeepAlive(n.t)
+	return int(C.ts_node_child_count(n.c))
 }
 
 // NamedChildCount returns the node's number of *named* children.
-func (n Node) NamedChildCount() uint32 {
-	return uint32(C.ts_node_named_child_count(n.c))
+func (n Node) NamedChildCount() int {
+	defer runtime.KeepAlive(n.t)
+	return int(C.ts_node_named_child_count(n.c))
 }
 
 // ChildByFieldName returns the node's child with the given field name.
-func (n Node) ChildByFieldName(name string) *Node {
+func (n Node) ChildByFieldName(name string) Node {
 	str := C.CString(name)
 	defer C.free(unsafe.Pointer(str))
 	nn := C.ts_node_child_by_field_name(n.c, str, C.uint32_t(len(name)))
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // FieldNameForChild returns the field name of the child at the given index, or "" if not named.
@@ -524,27 +499,27 @@ func (n Node) FieldNameForChild(idx int) string {
 }
 
 // NextSibling returns the node's next sibling.
-func (n Node) NextSibling() *Node {
+func (n Node) NextSibling() Node {
 	nn := C.ts_node_next_sibling(n.c)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // NextNamedSibling returns the node's next *named* sibling.
-func (n Node) NextNamedSibling() *Node {
+func (n Node) NextNamedSibling() Node {
 	nn := C.ts_node_next_named_sibling(n.c)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // PrevSibling returns the node's previous sibling.
-func (n Node) PrevSibling() *Node {
+func (n Node) PrevSibling() Node {
 	nn := C.ts_node_prev_sibling(n.c)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // PrevNamedSibling returns the node's previous *named* sibling.
-func (n Node) PrevNamedSibling() *Node {
+func (n Node) PrevNamedSibling() Node {
 	nn := C.ts_node_prev_named_sibling(n.c)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
 }
 
 // Edit the node to keep it in-sync with source code that has been edited.
@@ -552,12 +527,7 @@ func (n Node) Edit(i EditInput) {
 	C.ts_node_edit(&n.c, i.c())
 }
 
-// Content returns node's source code from input as a string
-func (n Node) Content(input []byte) string {
-	return string(input[n.StartByte():n.EndByte()])
-}
-
-func (n Node) NamedDescendantForPointRange(start Point, end Point) *Node {
+func (n Node) NamedDescendantForPointRange(start Point, end Point) Node {
 	cStartPoint := C.TSPoint{
 		row:    C.uint32_t(start.Row),
 		column: C.uint32_t(start.Column),
@@ -567,7 +537,27 @@ func (n Node) NamedDescendantForPointRange(start Point, end Point) *Node {
 		column: C.uint32_t(end.Column),
 	}
 	nn := C.ts_node_named_descendant_for_point_range(n.c, cStartPoint, cEndPoint)
-	return n.t.cachedNode(nn)
+	return Node{c: (C.TSNode)(nn), t: n.t}
+}
+
+type Symbol = C.TSSymbol
+
+type SymbolType int
+
+const (
+	SymbolTypeRegular SymbolType = iota
+	SymbolTypeAnonymous
+	SymbolTypeAuxiliary
+)
+
+var symbolTypeNames = []string{
+	"Regular",
+	"Anonymous",
+	"Auxiliary",
+}
+
+func (t SymbolType) String() string {
+	return symbolTypeNames[t]
 }
 
 // TreeCursor allows you to walk a syntax tree more efficiently than is
@@ -581,13 +571,12 @@ type TreeCursor struct {
 }
 
 // NewTreeCursor creates a new tree cursor starting from the given node.
-func NewTreeCursor(n *Node) *TreeCursor {
+func NewTreeCursor(n Node) *TreeCursor {
 	cc := C.ts_tree_cursor_new(n.c)
 	c := &TreeCursor{
 		c: &cc,
 		t: n.t,
 	}
-
 	runtime.SetFinalizer(c, (*TreeCursor).Close)
 	return c
 }
@@ -606,21 +595,21 @@ func (c *TreeCursor) Close() {
 }
 
 // Reset re-initializes a tree cursor to start at a different node.
-func (c *TreeCursor) Reset(n *Node) {
-	c.t = n.t
+func (c *TreeCursor) Reset(n Node) {
 	C.ts_tree_cursor_reset(c.c, n.c)
 }
 
 // CurrentNode of the tree cursor.
-func (c *TreeCursor) CurrentNode() *Node {
+func (c *TreeCursor) CurrentNode() Node {
 	n := C.ts_tree_cursor_current_node(c.c)
-	return c.t.cachedNode(n)
+	return Node{c: (C.TSNode)(n), t: c.t}
 }
 
 // CurrentFieldName gets the field name of the tree cursor's current node.
 //
 // This returns empty string if the current node doesn't have a field.
 func (c *TreeCursor) CurrentFieldName() string {
+	defer runtime.KeepAlive(c.t)
 	return C.GoString(C.ts_tree_cursor_current_field_name(c.c))
 }
 
@@ -629,6 +618,7 @@ func (c *TreeCursor) CurrentFieldName() string {
 // This returns `true` if the cursor successfully moved, and returns `false`
 // if there was no parent node (the cursor was already on the root node).
 func (c *TreeCursor) GoToParent() bool {
+	defer runtime.KeepAlive(c.t)
 	return bool(C.ts_tree_cursor_goto_parent(c.c))
 }
 
@@ -637,6 +627,7 @@ func (c *TreeCursor) GoToParent() bool {
 // This returns `true` if the cursor successfully moved, and returns `false`
 // if there was no next sibling node.
 func (c *TreeCursor) GoToNextSibling() bool {
+	defer runtime.KeepAlive(c.t)
 	return bool(C.ts_tree_cursor_goto_next_sibling(c.c))
 }
 
@@ -645,6 +636,7 @@ func (c *TreeCursor) GoToNextSibling() bool {
 // This returns `true` if the cursor successfully moved, and returns `false`
 // if there were no children.
 func (c *TreeCursor) GoToFirstChild() bool {
+	defer runtime.KeepAlive(c.t)
 	return bool(C.ts_tree_cursor_goto_first_child(c.c))
 }
 
@@ -654,6 +646,7 @@ func (c *TreeCursor) GoToFirstChild() bool {
 // This returns the index of the child node if one was found, and returns -1
 // if no such child was found.
 func (c *TreeCursor) GoToFirstChildForByte(b uint32) int64 {
+	defer runtime.KeepAlive(c.t)
 	return int64(C.ts_tree_cursor_goto_first_child_for_byte(c.c, C.uint32_t(b)))
 }
 
@@ -873,7 +866,7 @@ const (
 
 type QueryPredicateStep struct {
 	Type    QueryPredicateStepType
-	ValueId uint32
+	ValueId int
 }
 
 func (q *Query) PredicatesForPattern(patternIndex uint32) [][]QueryPredicateStep {
@@ -892,20 +885,20 @@ func (q *Query) PredicatesForPattern(patternIndex uint32) [][]QueryPredicateStep
 	slice.Data = uintptr(unsafe.Pointer(cPredicateStep))
 	for _, s := range cPredicateSteps {
 		stepType := QueryPredicateStepType(s._type)
-		valueId := uint32(s.value_id)
-		predicateSteps = append(predicateSteps, QueryPredicateStep{stepType, valueId})
+		valueID := int(s.value_id)
+		predicateSteps = append(predicateSteps, QueryPredicateStep{stepType, valueID})
 	}
 
 	return splitPredicates(predicateSteps)
 }
 
-func (q *Query) CaptureNameForId(id uint32) string {
+func (q *Query) CaptureNameForId(id int) string {
 	var length C.uint32_t
 	name := C.ts_query_capture_name_for_id(q.c, C.uint32_t(id), &length)
 	return C.GoStringN(name, C.int(length))
 }
 
-func (q *Query) StringValueForId(id uint32) string {
+func (q *Query) StringValueForId(id int) string {
 	var length C.uint32_t
 	value := C.ts_query_string_value_for_id(q.c, C.uint32_t(id), &length)
 	return C.GoStringN(value, C.int(length))
@@ -928,23 +921,22 @@ func (q *Query) CaptureQuantifierForId(id uint32, captureId uint32) Quantifier {
 // QueryCursor carries the state needed for processing the queries.
 type QueryCursor struct {
 	c *C.TSQueryCursor
-	t *Tree
 	// keep a pointer to the query to avoid garbage collection
 	q *Query
+	t *Tree
 
 	isClosed bool
 }
 
 // NewQueryCursor creates a query cursor.
 func NewQueryCursor() *QueryCursor {
-	qc := &QueryCursor{c: C.ts_query_cursor_new(), t: nil}
+	qc := &QueryCursor{c: C.ts_query_cursor_new()}
 	runtime.SetFinalizer(qc, (*QueryCursor).Close)
-
 	return qc
 }
 
 // Exec executes the query on a given syntax node.
-func (qc *QueryCursor) Exec(q *Query, n *Node) {
+func (qc *QueryCursor) Exec(q *Query, n Node) {
 	qc.q = q
 	qc.t = n.t
 	C.ts_query_cursor_exec(qc.c, q.c, n.c)
@@ -976,13 +968,13 @@ func (qc *QueryCursor) Close() {
 
 // QueryCapture is a captured node by a query with an index
 type QueryCapture struct {
-	Index uint32
-	Node  *Node
+	Index int
+	Node  Node
 }
 
 // QueryMatch - you can then iterate over the matches.
 type QueryMatch struct {
-	ID           uint32
+	ID           int
 	PatternIndex uint16
 	Captures     []QueryCapture
 }
@@ -992,38 +984,31 @@ type QueryMatch struct {
 // Otherwise, it will populate the QueryMatch with data
 // about which pattern matched and which nodes were captured.
 func (qc *QueryCursor) NextMatch() (*QueryMatch, bool) {
-	var (
-		cqm C.TSQueryMatch
-		cqc []C.TSQueryCapture
-	)
-
+	if qc.isClosed {
+		panic("QueryCursor is closed")
+	}
+	var cqm C.TSQueryMatch
 	if ok := C.ts_query_cursor_next_match(qc.c, &cqm); !bool(ok) {
 		return nil, false
 	}
 
 	qm := &QueryMatch{
-		ID:           uint32(cqm.id),
+		ID:           int(cqm.id),
 		PatternIndex: uint16(cqm.pattern_index),
 	}
 
-	count := int(cqm.capture_count)
-	slice := (*reflect.SliceHeader)((unsafe.Pointer(&cqc)))
-	slice.Cap = count
-	slice.Len = count
-	slice.Data = uintptr(unsafe.Pointer(cqm.captures))
+	cqc := unsafe.Slice((*C.TSQueryCapture)(cqm.captures), int(cqm.capture_count))
 	for _, c := range cqc {
-		idx := uint32(c.index)
-		node := qc.t.cachedNode(c.node)
-		qm.Captures = append(qm.Captures, QueryCapture{idx, node})
+		idx := int(c.index)
+		qm.Captures = append(qm.Captures, QueryCapture{idx, Node{c: c.node, t: qc.t}})
 	}
 
 	return qm, true
 }
 
-func (qc *QueryCursor) NextCapture() (*QueryMatch, uint32, bool) {
+func (qc *QueryCursor) NextCapture() (*QueryMatch, int, bool) {
 	var (
 		cqm          C.TSQueryMatch
-		cqc          []C.TSQueryCapture
 		captureIndex C.uint32_t
 	)
 
@@ -1032,22 +1017,17 @@ func (qc *QueryCursor) NextCapture() (*QueryMatch, uint32, bool) {
 	}
 
 	qm := &QueryMatch{
-		ID:           uint32(cqm.id),
+		ID:           int(cqm.id),
 		PatternIndex: uint16(cqm.pattern_index),
 	}
 
-	count := int(cqm.capture_count)
-	slice := (*reflect.SliceHeader)((unsafe.Pointer(&cqc)))
-	slice.Cap = count
-	slice.Len = count
-	slice.Data = uintptr(unsafe.Pointer(cqm.captures))
+	cqc := unsafe.Slice((*C.TSQueryCapture)(cqm.captures), int(cqm.capture_count))
 	for _, c := range cqc {
-		idx := uint32(c.index)
-		node := qc.t.cachedNode(c.node)
-		qm.Captures = append(qm.Captures, QueryCapture{idx, node})
+		idx := int(c.index)
+		qm.Captures = append(qm.Captures, QueryCapture{idx, Node{c: c.node, t: qc.t}})
 	}
 
-	return qm, uint32(captureIndex), true
+	return qm, int(captureIndex), true
 }
 
 // Copied From: https://github.com/klothoplatform/go-tree-sitter/commit/e351b20167b26d515627a4a1a884528ede5fef79
@@ -1095,7 +1075,7 @@ func (qc *QueryCursor) FilterPredicates(m *QueryMatch, input []byte) *QueryMatch
 			if steps[2].Type == QueryPredicateStepTypeCapture {
 				expectedCaptureNameRight := q.CaptureNameForId(steps[2].ValueId)
 
-				var nodeLeft, nodeRight *Node
+				var nodeLeft, nodeRight Node
 
 				for _, c := range m.Captures {
 					captureName := q.CaptureNameForId(c.Index)
@@ -1107,8 +1087,9 @@ func (qc *QueryCursor) FilterPredicates(m *QueryMatch, input []byte) *QueryMatch
 						nodeRight = c.Node
 					}
 
-					if nodeLeft != nil && nodeRight != nil {
-						if (nodeLeft.Content(input) == nodeRight.Content(input)) != isPositive {
+					if nodeLeft != (Node{}) && nodeRight != (Node{}) {
+						eq := bytes.Equal(nodeContent(nodeLeft, input), nodeContent(nodeRight, input))
+						if eq != isPositive {
 							matchedAll = false
 						}
 						break
@@ -1124,7 +1105,8 @@ func (qc *QueryCursor) FilterPredicates(m *QueryMatch, input []byte) *QueryMatch
 						continue
 					}
 
-					if (c.Node.Content(input) == expectedValueRight) != isPositive {
+					// TODO: make a version of StringValueForId that doesn't allocate
+					if (string(nodeContent(c.Node, input)) == expectedValueRight) != isPositive {
 						matchedAll = false
 						break
 					}
@@ -1147,7 +1129,7 @@ func (qc *QueryCursor) FilterPredicates(m *QueryMatch, input []byte) *QueryMatch
 					continue
 				}
 
-				if regex.Match([]byte(c.Node.Content(input))) != isPositive {
+				if regex.Match(nodeContent(c.Node, input)) != isPositive {
 					matchedAll = false
 					break
 				}
@@ -1160,8 +1142,9 @@ func (qc *QueryCursor) FilterPredicates(m *QueryMatch, input []byte) *QueryMatch
 	}
 
 	return qm
-
 }
+
+func nodeContent(n Node, b []byte) []byte { return b[n.StartByte():n.EndByte()] }
 
 // keeps callbacks for parser.parse method
 type readFuncsMap struct {
@@ -1198,8 +1181,8 @@ func (m *readFuncsMap) get(id int) ReadFunc {
 func callReadFunc(id C.int, byteIndex C.uint32_t, position C.TSPoint, bytesRead *C.uint32_t) *C.char {
 	readFunc := readFuncs.get(int(id))
 	content := readFunc(uint32(byteIndex), Point{
-		Row:    uint32(position.row),
-		Column: uint32(position.column),
+		Row:    int(position.row),
+		Column: int(position.column),
 	})
 	*bytesRead = C.uint32_t(len(content))
 

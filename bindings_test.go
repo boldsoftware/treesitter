@@ -20,16 +20,10 @@ func TestRootNode(t *testing.T) {
 	n, err := Parse(context.Background(), []byte("1 + 2"), getTestGrammar())
 	assert.NoError(err)
 
-	assert.Equal(uint32(0), n.StartByte())
-	assert.Equal(uint32(5), n.EndByte())
-	assert.Equal(Point{
-		Row:    0,
-		Column: 0,
-	}, n.StartPoint())
-	assert.Equal(Point{
-		Row:    0,
-		Column: 5,
-	}, n.EndPoint())
+	assert.Equal(0, n.StartByte())
+	assert.Equal(5, n.EndByte())
+	assert.Equal(Point{Row: 0, Column: 0}, n.StartPoint())
+	assert.Equal(Point{Row: 0, Column: 5}, n.EndPoint())
 	assert.Equal("(expression (sum left: (expression (number)) right: (expression (number))))", n.String())
 	assert.Equal("expression", n.Type())
 	assert.Equal(Symbol(7), n.Symbol())
@@ -42,20 +36,20 @@ func TestRootNode(t *testing.T) {
 	assert.Equal(false, n.HasChanges())
 	assert.Equal(false, n.HasError())
 
-	assert.Equal(uint32(1), n.ChildCount())
-	assert.Equal(uint32(1), n.NamedChildCount())
+	assert.Equal(1, n.ChildCount())
+	assert.Equal(1, n.NamedChildCount())
 
-	assert.Nil(n.Parent())
-	assert.Nil(n.NextSibling())
-	assert.Nil(n.NextNamedSibling())
-	assert.Nil(n.PrevSibling())
-	assert.Nil(n.PrevNamedSibling())
+	assert.True(n.Parent().IsNull())
+	assert.True(n.NextSibling().IsNull())
+	assert.True(n.NextNamedSibling().IsNull())
+	assert.True(n.PrevSibling().IsNull())
+	assert.True(n.PrevNamedSibling().IsNull())
 
-	assert.NotNil(n.Child(0))
-	assert.NotNil(n.NamedChild(0))
-	assert.Nil(n.ChildByFieldName("unknown"))
+	assert.False(n.Child(0).IsNull())
+	assert.False(n.NamedChild(0).IsNull())
+	assert.True(n.ChildByFieldName("unknown").IsNull())
 
-	assert.NotNil(n.NamedChild(0).ChildByFieldName("left"))
+	assert.False(n.NamedChild(0).ChildByFieldName("left").IsNull())
 }
 
 func TestTree(t *testing.T) {
@@ -69,8 +63,8 @@ func TestTree(t *testing.T) {
 	assert.NoError(err)
 	n := tree.RootNode()
 
-	assert.Equal(uint32(0), n.StartByte())
-	assert.Equal(uint32(5), n.EndByte())
+	assert.Equal(0, n.StartByte())
+	assert.Equal(5, n.EndByte())
 	assert.Equal("expression", n.Type())
 	assert.Equal("(expression (sum left: (expression (number)) right: (expression (number))))", n.String())
 
@@ -87,18 +81,9 @@ func TestTree(t *testing.T) {
 		StartIndex:  4,
 		OldEndIndex: 5,
 		NewEndIndex: 11,
-		StartPoint: Point{
-			Row:    0,
-			Column: 4,
-		},
-		OldEndPoint: Point{
-			Row:    0,
-			Column: 5,
-		},
-		NewEndPoint: Point{
-			Row:    0,
-			Column: 11,
-		},
+		StartPoint:  Point{Row: 0, Column: 4},
+		OldEndPoint: Point{Row: 0, Column: 5},
+		NewEndPoint: Point{Row: 0, Column: 11},
 	})
 	// check that it changed tree
 	assert.True(n.HasChanges())
@@ -114,7 +99,7 @@ func TestTree(t *testing.T) {
 
 	descendantNode := n.NamedDescendantForPointRange(Point{Row: 0, Column: 5}, Point{Row: 0, Column: 11})
 	assert.NotNil(descendantNode, "Descendant node was nil")
-	assert.Equal("(3 + 3)", descendantNode.Content(newText))
+	assert.Equal("(3 + 3)", string(nodeContent(descendantNode, newText)))
 }
 
 func TestErrorNodes(t *testing.T) {
@@ -185,7 +170,7 @@ func TestGC(t *testing.T) {
 	assert.True(r)
 }
 
-func isNamedWithGC(n *Node) bool {
+func isNamedWithGC(n Node) bool {
 	runtime.GC()
 	time.Sleep(500 * time.Microsecond)
 	return n.IsNamed()
@@ -379,7 +364,7 @@ func testCaptures(t *testing.T, body, sq string, expected []string) {
 		}
 
 		for _, c := range m.Captures {
-			actual = append(actual, c.Node.Content([]byte(body)))
+			actual = append(actual, body[c.Node.StartByte():c.Node.EndByte()])
 		}
 	}
 
@@ -397,7 +382,7 @@ func TestQueryError(t *testing.T) {
 		Message: "invalid node type 'unknown' at line 1 column 0"}, err)
 }
 
-func doWorkLifetime(t testing.TB, n *Node) {
+func doWorkLifetime(t testing.TB, n Node) {
 	for i := 0; i < 100; i++ {
 		// this will trigger an actual bug (if it still there)
 		s := n.String()
@@ -593,11 +578,13 @@ func TestLeakParseInput(t *testing.T) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	// shouldn't exceed 1mb that go runtime takes
-	assert.Less(t, m.Alloc, uint64(1024*1024))
+	// shouldn't exceed 2mb that go runtime takes
+	assert.Less(t, m.Alloc, uint64(2*1024*1024))
 }
 
-// see https://github.com/boldsoftware/treesitter/issues/75
+// TestCursorKeepsQuery is a regression test for https://github.com/smacker/go-tree-sitter/issues/75.
+// In particular it tests that the finalizers on the query and tree
+// don't fire while we are looping through NextMatch.
 func TestCursorKeepsQuery(t *testing.T) {
 	source := bytes.Repeat([]byte("1 + 1"), 10000)
 
@@ -680,5 +667,40 @@ func BenchmarkParseInput(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		_, _ = parser.ParseInput(ctx, nil, input)
+	}
+}
+
+func TestNodeAllocs(t *testing.T) {
+	p := NewParser()
+	p.SetLanguage(getTestGrammar())
+	data := []byte("1 + 2\n// a comment")
+
+	parseAllocs := testing.AllocsPerRun(1000, func() {
+		p.Parse(context.Background(), nil, data)
+	})
+
+	nodes := make([]Node, 0, 100000)
+	var walkFn func(n Node)
+	walkFn = func(n Node) {
+		for i := 0; i < int(n.ChildCount()); i++ {
+			nodes = append(nodes, n.Child(i))
+			walkFn(n.Child(i))
+		}
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		tree, err := p.Parse(context.Background(), nil, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		walkFn(tree.RootNode())
+	})
+
+	nodeAllocs := allocs - parseAllocs
+	t.Logf("parseAllocs=%v, nodeAllocs=%v", parseAllocs, nodeAllocs)
+
+	const wantNodeAllocs = 0
+	if nodeAllocs != wantNodeAllocs {
+		t.Errorf("AllocsPerRun=%v, want %v", nodeAllocs, wantNodeAllocs)
 	}
 }

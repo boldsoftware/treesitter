@@ -52,8 +52,8 @@ func ExampleCursorTraversal() {
 func ExampleChildTraversal() {
 	root := mustParseGo("func f(a, b, c int, d, e int)")
 
-	var visit func(n *treesitter.Node, name string, depth int)
-	visit = func(n *treesitter.Node, name string, depth int) {
+	var visit func(n treesitter.Node, name string, depth int)
+	visit = func(n treesitter.Node, name string, depth int) {
 		printNode(n, depth, name)
 		for i := 0; i < int(n.ChildCount()); i++ {
 			visit(n.Child(i), n.FieldNameForChild(i), depth+1)
@@ -63,7 +63,7 @@ func ExampleChildTraversal() {
 	visit(root, "root", 0)
 }
 
-func mustParseGo(src string) *treesitter.Node {
+func mustParseGo(src string) treesitter.Node {
 	root, err := treesitter.Parse(context.Background(), []byte(src), golang.GetLanguage())
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +71,7 @@ func mustParseGo(src string) *treesitter.Node {
 	return root
 }
 
-func printNode(n *treesitter.Node, depth int, name string) {
+func printNode(n treesitter.Node, depth int, name string) {
 	prefix := ""
 	if name != "" {
 		prefix = name + ": "

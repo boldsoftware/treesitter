@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/boldsoftware/treesitter"
 	"github.com/boldsoftware/treesitter/markdown"
 	"github.com/stretchr/testify/assert"
 )
@@ -59,7 +60,7 @@ func TestIter(t *testing.T) {
 	i := int(0)
 	tree.Iter(func(node *markdown.Node) bool {
 		assert.Equal(expected[i].Node, node.String(), "node mismatch. idx: %d", i)
-		if expected[i].InlineNode != "" || node.Inline != nil {
+		if expected[i].InlineNode != "" || node.Inline != (treesitter.Node{}) {
 			assert.Equal(expected[i].InlineNode, node.Inline.String(), "inline node mismatch. idx: %d", i)
 		}
 
