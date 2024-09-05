@@ -38,12 +38,13 @@ type Parser struct {
 	isClosed bool
 	c        *C.TSParser
 	cancel   *uintptr
+	lang     *Language
 }
 
 // NewParser creates new Parser.
 func NewParser(lang *Language) *Parser {
 	cancel := uintptr(0)
-	p := &Parser{c: C.ts_parser_new(), cancel: &cancel}
+	p := &Parser{c: C.ts_parser_new(), cancel: &cancel, lang: lang}
 	C.ts_parser_set_cancellation_flag(p.c, (*C.size_t)(unsafe.Pointer(p.cancel)))
 	C.ts_parser_set_language(p.c, (*C.struct_TSLanguage)(lang.ptr))
 	runtime.SetFinalizer(p, (*Parser).Close)
@@ -253,6 +254,10 @@ func (t *Tree) RootNode() Node {
 	return Node{c: (C.TSNode)(n), t: t}
 }
 
+func (t *Tree) goString(ptr *C.char) string {
+	return t.p.lang.goString(ptr)
+}
+
 // Close should be called to ensure that all the memory used by the tree is freed.
 //
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
@@ -303,18 +308,38 @@ func (t *Tree) Edit(i EditInput) {
 
 // Language defines how to parse a particular programming language
 type Language struct {
-	ptr unsafe.Pointer
+	ptr      unsafe.Pointer
+	cstrings map[*C.char]string // unchanged after NewLanguage
 }
 
 // NewLanguage creates new Language from c pointer
 func NewLanguage(ptr unsafe.Pointer) *Language {
-	return &Language{ptr}
+	l := &Language{ptr: ptr, cstrings: make(map[*C.char]string)}
+	// load up cstrings
+	for i := 0; i < l.FieldCount(); i++ {
+		ptr := l.cFieldName(i)
+		l.cstrings[ptr] = C.GoString(ptr)
+	}
+	for i := 0; i < l.SymbolCount(); i++ {
+		ptr := l.cSymbolName(Symbol(i))
+		l.cstrings[ptr] = C.GoString(ptr)
+	}
+	return l
+}
+
+func (l *Language) goString(ptr *C.char) string {
+	if s, found := l.cstrings[ptr]; found {
+		return s
+	}
+	return C.GoString(ptr)
+}
+
+func (l *Language) cSymbolName(s Symbol) *C.char {
+	return C.ts_language_symbol_name((*C.TSLanguage)(l.ptr), s)
 }
 
 // SymbolName returns a node type string for the given Symbol.
-func (l *Language) SymbolName(s Symbol) string {
-	return C.GoString(C.ts_language_symbol_name((*C.TSLanguage)(l.ptr), s))
-}
+func (l *Language) SymbolName(s Symbol) string { return l.goString(l.cSymbolName(s)) }
 
 // SymbolType returns named, anonymous, or a hidden type for a Symbol.
 func (l *Language) SymbolType(s Symbol) SymbolType {
@@ -322,12 +347,18 @@ func (l *Language) SymbolType(s Symbol) SymbolType {
 }
 
 // SymbolCount returns the number of distinct field names in the language.
-func (l *Language) SymbolCount() uint32 {
-	return uint32(C.ts_language_symbol_count((*C.TSLanguage)(l.ptr)))
+func (l *Language) SymbolCount() int {
+	return int(C.ts_language_symbol_count((*C.TSLanguage)(l.ptr)))
 }
 
-func (l *Language) FieldName(idx int) string {
-	return C.GoString(C.ts_language_field_name_for_id((*C.TSLanguage)(l.ptr), C.ushort(idx)))
+func (l *Language) cFieldName(idx int) *C.char {
+	return C.ts_language_field_name_for_id((*C.TSLanguage)(l.ptr), C.ushort(idx))
+}
+
+func (l *Language) FieldName(idx int) string { return l.goString(l.cFieldName(idx)) }
+
+func (l *Language) FieldCount() int {
+	return int(C.ts_language_field_count((*C.TSLanguage)(l.ptr)))
 }
 
 // Node represents a single node in the syntax tree.
@@ -388,7 +419,7 @@ func (n Node) Symbol() Symbol {
 
 // Type returns the node's type as a string.
 func (n Node) Type() string {
-	return C.GoString(C.ts_node_type(n.c))
+	return n.t.goString(C.ts_node_type(n.c))
 }
 
 // String returns an S-expression representing the node as a string.
@@ -489,7 +520,7 @@ func (n Node) ChildByFieldName(name string) Node {
 
 // FieldNameForChild returns the field name of the child at the given index, or "" if not named.
 func (n Node) FieldNameForChild(idx int) string {
-	return C.GoString(C.ts_node_field_name_for_child(n.c, C.uint32_t(idx)))
+	return n.t.goString(C.ts_node_field_name_for_child(n.c, C.uint32_t(idx)))
 }
 
 // NextSibling returns the node's next sibling.
@@ -604,7 +635,7 @@ func (c *TreeCursor) CurrentNode() Node {
 // This returns empty string if the current node doesn't have a field.
 func (c *TreeCursor) CurrentFieldName() string {
 	defer runtime.KeepAlive(c.t)
-	return C.GoString(C.ts_tree_cursor_current_field_name(c.c))
+	return c.t.goString(C.ts_tree_cursor_current_field_name(c.c))
 }
 
 // GoToParent moves the cursor to the parent of its current node.

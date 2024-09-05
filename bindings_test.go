@@ -143,7 +143,7 @@ func TestLanguage(t *testing.T) {
 	assert := assert.New(t)
 	js := getTestGrammar()
 
-	assert.Equal(uint32(9), js.SymbolCount())
+	assert.Equal(9, js.SymbolCount())
 	assert.Equal(js.SymbolName(3), "+")
 	assert.Equal(js.SymbolType(3), SymbolTypeAnonymous)
 	assert.Equal(js.SymbolName(4), "number")
