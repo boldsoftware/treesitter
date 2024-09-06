@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"reflect"
 	"regexp"
@@ -527,6 +528,28 @@ func (n Node) NamedChildCount() int {
 	return int(C.ts_node_named_child_count(n.c))
 }
 
+// Children returns an iterator over n's children.
+func (n Node) Children() iter.Seq2[int, Node] {
+	return func(yield func(int, Node) bool) {
+		for i := range n.ChildCount() {
+			if !yield(i, n.Child(i)) {
+				return
+			}
+		}
+	}
+}
+
+// NamedChildren returns an iterator over n's named children.
+func (n Node) NamedChildren() iter.Seq2[int, Node] {
+	return func(yield func(int, Node) bool) {
+		for i := range n.NamedChildCount() {
+			if !yield(i, n.NamedChild(i)) {
+				return
+			}
+		}
+	}
+}
+
 // ChildByFieldName returns the node's child with the given field name.
 func (n Node) ChildByFieldName(name string) Node {
 	str := C.CString(name)
@@ -717,7 +740,6 @@ func QueryErrorTypeToString(errorType QueryErrorType) string {
 	default:
 		return "unknown"
 	}
-
 }
 
 // QueryError - if there is an error in the query,
