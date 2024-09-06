@@ -35,10 +35,9 @@ func Parse(ctx context.Context, content []byte, lang *Language) (Node, error) {
 
 // Parser produces concrete syntax tree based on source code using Language
 type Parser struct {
-	isClosed bool
-	c        *C.TSParser
-	cancel   *uintptr
-	lang     *Language
+	c      *C.TSParser
+	cancel *uintptr
+	lang   *Language
 }
 
 // NewParser creates new Parser.
@@ -195,11 +194,10 @@ func (p *Parser) Debug() {
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
 // parser.Close() will be called by Go's garbage collector and users would not have to call this manually.
 func (p *Parser) Close() {
-	if !p.isClosed {
+	if p.c != nil {
 		C.ts_parser_delete(p.c)
+		p.c = nil
 	}
-
-	p.isClosed = true
 }
 
 type Point struct {
@@ -591,8 +589,6 @@ func (t SymbolType) String() string {
 type TreeCursor struct {
 	c *C.TSTreeCursor
 	t *Tree
-
-	isClosed bool
 }
 
 // NewTreeCursor creates a new tree cursor starting from the given node.
@@ -612,11 +608,10 @@ func NewTreeCursor(n Node) *TreeCursor {
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
 // parser.Close() will be called by Go's garbage collector and users would not have to call this manually.
 func (c *TreeCursor) Close() {
-	if !c.isClosed {
+	if c.c != nil {
 		C.ts_tree_cursor_delete(c.c)
+		c.c = nil
 	}
-
-	c.isClosed = true
 }
 
 // Reset re-initializes a tree cursor to start at a different node.
@@ -721,8 +716,7 @@ func (qe *QueryError) Error() string {
 
 // Query API
 type Query struct {
-	c        *C.TSQuery
-	isClosed bool
+	c *C.TSQuery
 }
 
 // NewQuery creates a query by specifying a string containing one or more patterns.
@@ -862,11 +856,10 @@ func NewQuery(pattern []byte, lang *Language) (*Query, error) {
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
 // parser.Close() will be called by Go's garbage collector and users would not have to call this manually.
 func (q *Query) Close() {
-	if !q.isClosed {
+	if q.c != nil {
 		C.ts_query_delete(q.c)
+		q.c = nil
 	}
-
-	q.isClosed = true
 }
 
 func (q *Query) PatternCount() uint32 {
@@ -949,8 +942,6 @@ type QueryCursor struct {
 	// keep a pointer to the query to avoid garbage collection
 	q *Query
 	t *Tree
-
-	isClosed bool
 }
 
 // NewQueryCursor creates a query cursor.
@@ -984,11 +975,10 @@ func (qc *QueryCursor) SetPointRange(startPoint Point, endPoint Point) {
 // As the constructor in go-tree-sitter would set this func call through runtime.SetFinalizer,
 // parser.Close() will be called by Go's garbage collector and users would not have to call this manually.
 func (qc *QueryCursor) Close() {
-	if !qc.isClosed {
+	if qc.c != nil {
 		C.ts_query_cursor_delete(qc.c)
+		qc.c = nil
 	}
-
-	qc.isClosed = true
 }
 
 // QueryCapture is a captured node by a query with an index
@@ -1009,9 +999,6 @@ type QueryMatch struct {
 // Otherwise, it will populate the QueryMatch with data
 // about which pattern matched and which nodes were captured.
 func (qc *QueryCursor) NextMatch() (*QueryMatch, bool) {
-	if qc.isClosed {
-		panic("QueryCursor is closed")
-	}
 	var cqm C.TSQueryMatch
 	if ok := C.ts_query_cursor_next_match(qc.c, &cqm); !bool(ok) {
 		return nil, false
