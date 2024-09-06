@@ -4,17 +4,12 @@ package golang
 //TSLanguage *tree_sitter_go();
 import "C"
 import (
-	"sync"
 	"unsafe"
 
 	"github.com/boldsoftware/treesitter"
 )
 
-var get = sync.OnceValue(func() *treesitter.Language {
+func init() {
 	ptr := unsafe.Pointer(C.tree_sitter_go())
-	return treesitter.NewLanguage(ptr)
-})
-
-func GetLanguage() *treesitter.Language {
-	return get()
+	treesitter.RegisterLanguage("go", treesitter.NewLanguage(ptr))
 }

@@ -8,8 +8,8 @@ import (
 	"log"
 	"strings"
 
-	treesitter "github.com/boldsoftware/treesitter"
-	"github.com/boldsoftware/treesitter/golang"
+	"github.com/boldsoftware/treesitter"
+	_ "github.com/boldsoftware/treesitter/golang"
 )
 
 // ExampleCursorTraversal recursively prints the tree using TreeCursor.
@@ -64,7 +64,7 @@ func ExampleChildTraversal() {
 }
 
 func mustParseGo(src string) treesitter.Node {
-	root, err := treesitter.Parse(context.Background(), []byte(src), golang.GetLanguage())
+	root, err := treesitter.Parse(context.Background(), []byte(src), "go")
 	if err != nil {
 		log.Fatal(err)
 	}

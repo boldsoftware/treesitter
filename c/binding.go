@@ -6,10 +6,10 @@ import "C"
 import (
 	"unsafe"
 
-	sitter "github.com/boldsoftware/treesitter"
+	"github.com/boldsoftware/treesitter"
 )
 
-func GetLanguage() *sitter.Language {
+func init() {
 	ptr := unsafe.Pointer(C.tree_sitter_c())
-	return sitter.NewLanguage(ptr)
+	treesitter.RegisterLanguage("c", treesitter.NewLanguage(ptr))
 }

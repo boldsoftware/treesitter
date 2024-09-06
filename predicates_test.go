@@ -233,7 +233,7 @@ func TestQueryWithPredicates(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		q, err := NewQuery([]byte(testCase.pattern), getTestGrammar())
+		q, err := NewQuery([]byte(testCase.pattern), "testlang")
 
 		if testCase.success {
 			assert.Nil(t, err, testCase.msg)
@@ -380,7 +380,7 @@ func TestFilterPredicates(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(getTestGrammar())
+	parser := NewParser("testlang")
 
 	for testNum, testCase := range testCases {
 		tree, err := parser.Parse(context.Background(), nil, []byte(testCase.input))
@@ -389,7 +389,7 @@ func TestFilterPredicates(t *testing.T) {
 		}
 		root := tree.RootNode()
 
-		q, _ := NewQuery([]byte(testCase.query), getTestGrammar())
+		q, _ := NewQuery([]byte(testCase.query), "testlang")
 		qc := NewQueryCursor()
 		qc.Exec(q, root)
 

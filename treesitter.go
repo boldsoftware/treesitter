@@ -18,12 +18,9 @@ import (
 	"unsafe"
 )
 
-// maintain a map of read functions that can be called from C
-var readFuncs = &readFuncsMap{funcs: make(map[int]ReadFunc)}
-
 // Parse is a shortcut for parsing bytes of source code,
 // returns root node
-func Parse(ctx context.Context, content []byte, lang *Language) (Node, error) {
+func Parse(ctx context.Context, content []byte, lang string) (Node, error) {
 	p := NewParser(lang)
 	tree, err := p.Parse(ctx, nil, content)
 	if err != nil {
@@ -41,7 +38,11 @@ type Parser struct {
 }
 
 // NewParser creates new Parser.
-func NewParser(lang *Language) *Parser {
+func NewParser(language string) *Parser {
+	lang := languages[language]
+	if lang == nil {
+		panic(fmt.Sprintf("language %s not found; missing import _ statement", language))
+	}
 	cancel := uintptr(0)
 	p := &Parser{c: C.ts_parser_new(), cancel: &cancel, lang: lang}
 	C.ts_parser_set_cancellation_flag(p.c, (*C.size_t)(unsafe.Pointer(p.cancel)))
@@ -49,6 +50,9 @@ func NewParser(lang *Language) *Parser {
 	runtime.SetFinalizer(p, (*Parser).Close)
 	return p
 }
+
+// maintain a map of read functions that can be called from C
+var readFuncs = &readFuncsMap{funcs: make(map[int]ReadFunc)}
 
 // ReadFunc is a function to retrieve a chunk of text at a given byte offset and (row, column) position
 // it should return nil to indicate the end of the document
@@ -302,6 +306,21 @@ func (t *Tree) Edit(i EditInput) {
 		panic("tree is closed")
 	}
 	C.ts_tree_edit(t.c, i.c())
+}
+
+var languages = map[string]*Language{}
+
+// RegisterLanguage registers a language with the parser.
+// It is called on init from packages that contain a language parser. E.g.
+//
+//	import _ "github.com/boldsoftware/treesitter/golang"
+//
+// calls RegisterLanguage("go", l) allowing go to be used as a language.
+func RegisterLanguage(langName string, l *Language) {
+	if languages[langName] != nil {
+		panic("language " + langName + " already registered")
+	}
+	languages[langName] = l
 }
 
 // Language defines how to parse a particular programming language
@@ -721,11 +740,15 @@ type Query struct {
 
 // NewQuery creates a query by specifying a string containing one or more patterns.
 // In case of error returns QueryError.
-func NewQuery(pattern []byte, lang *Language) (*Query, error) {
+func NewQuery(pattern []byte, language string) (*Query, error) {
 	var (
 		erroff  C.uint32_t
 		errtype C.TSQueryError
 	)
+	lang := languages[language]
+	if lang == nil {
+		return nil, fmt.Errorf("unknown language %s; missing import _ statement", language)
+	}
 
 	input := C.CBytes(pattern)
 	c := C.ts_query_new(

@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	sitter "github.com/boldsoftware/treesitter"
-	"github.com/boldsoftware/treesitter/golang"
+	"github.com/boldsoftware/treesitter"
+	_ "github.com/boldsoftware/treesitter/golang"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGrammar(t *testing.T) {
 	assert := assert.New(t)
 
-	n, err := sitter.Parse(context.Background(), []byte("package main"), golang.GetLanguage())
+	n, err := treesitter.Parse(context.Background(), []byte("package main"), "go")
 	assert.NoError(err)
 	assert.Equal(
 		"(source_file (package_clause (package_identifier)))",
