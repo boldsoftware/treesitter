@@ -442,6 +442,9 @@ func (n Node) Type() string {
 
 // String returns an S-expression representing the node as a string.
 func (n Node) String() string {
+	if n == (Node{}) {
+		return "(nil)"
+	}
 	ptr := C.ts_node_string(n.c)
 	defer C.free(unsafe.Pointer(ptr))
 	return C.GoString(ptr)

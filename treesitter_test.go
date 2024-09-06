@@ -371,8 +371,10 @@ func TestQueryError(t *testing.T) {
 
 	assert.Nil(q)
 	assert.NotNil(err)
-	assert.EqualValues(&QueryError{Offset: 0x02, Type: QueryErrorNodeType,
-		Message: "invalid node type 'unknown' at line 1 column 0"}, err)
+	assert.EqualValues(&QueryError{
+		Offset: 0x02, Type: QueryErrorNodeType,
+		Message: "invalid node type 'unknown' at line 1 column 0",
+	}, err)
 }
 
 func doWorkLifetime(t testing.TB, n Node) {
@@ -685,5 +687,12 @@ func TestNodeAllocs(t *testing.T) {
 	const wantNodeAllocs = 0
 	if nodeAllocs != wantNodeAllocs {
 		t.Errorf("AllocsPerRun=%v, want %v", nodeAllocs, wantNodeAllocs)
+	}
+}
+
+func TestNilNodeString(t *testing.T) {
+	var n Node
+	if got, want := n.String(), "(nil)"; got != want {
+		t.Errorf("n.String() = %q, want %q", got, want)
 	}
 }
